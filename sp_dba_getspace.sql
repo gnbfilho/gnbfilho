@@ -1,37 +1,36 @@
 USE [master]
 GO
 
-CREATE OR ALTER PROCEDURE sp_dba_getspace (
-	@dbname nvarchar(128) = NULL,
+CREATE PROCEDURE sp_dba_getspace (
+	@DBname nvarchar(128) = NULL,
 	@threshold decimal(5,2) = NULL,
 	@showfileinfo bit = 0,
-	@testonly bit = 0,
+	@debug bit = 0,
 	@tmpTabName varchar(128) = NULL
-) as
-begin
-
-	set nocount on
+) AS
+BEGIN
+	SET NOCOUNT ON
 
 	DECLARE @stmt nvarchar(4000),
 			@lensrv int,
-			@lendb int
+			@lendb INT;
 
 	CREATE TABLE #showfilestats_final (
-		Banco	nvarchar(128),
+		DBname	nvarchar(128),
 		FileGroupName nvarchar(128),
-		IdArquivo int,
-		Arquivo	nvarchar(128),
-		CaminhoArquivo nvarchar(255),
+		FileId int,
+		[FileName]	nvarchar(128),
+		[PhysicalName] nvarchar(255),
 		Total	DECIMAL(15,2),
-		Utilizado DECIMAL(15,2),
-		Livre	DECIMAL(15,2),
-		Maximo DECIMAL(15,2)
+		[Used] DECIMAL(15,2),
+		[Free]	DECIMAL(15,2),
+		[Maximum] DECIMAL(15,2)
 	)
 	CREATE TABLE #showlogstats (
-		Banco	nvarchar(128),
+		DBname	nvarchar(128),
 		TotalLog DECIMAL(15,2),
-		Utilizado DECIMAL(15,2),
-		Status INT
+		[Used] DECIMAL(15,2),
+		[Status] INT
 	)
 
 	EXEC sp_MSforeachdb @command1 = '
@@ -44,7 +43,7 @@ begin
 		UsedExtents DECIMAL(15),
 		Max8kbPages bigint,
 		Name VARCHAR(255),
-		FileName VARCHAR(255)
+		[FileName] VARCHAR(255)
 	)
 	INSERT INTO #showfilestats (
 		Fileid,
@@ -52,110 +51,110 @@ begin
 		TotalExtents,
 		UsedExtents,
 		Name,
-		FileName
+		[FileName]
 	) EXEC (''DBCC SHOWFILESTATS WITH NO_INFOMSGS'')
 	update #showfilestats
 		set Max8kbPages = saf.maxsize
 	from #showfilestats sfs
-		join master..sysaltfiles saf on sfs.FileName = saf.filename
+		join master..sysaltfiles saf on sfs.[FileName] = saf.[FileName]
 	INSERT INTO #showfilestats_final
 	SELECT	''?'',
 		fg.groupname,
 		Fileid,
 		Name,
-		CaminhoArquivo = FileName,
+		[PhysicalName] = [FileName],
 		Total = TotalExtents*65536/1024/1024.,
-		Utilizado = UsedExtents*65536/1024/1024.,
-		Livre = TotalExtents*65536/1024/1024. - UsedExtents*65536/1024/1024.,
-		Maximo =	case Max8kbPages
+		[Used] = UsedExtents*65536/1024/1024.,
+		[Free] = TotalExtents*65536/1024/1024. - UsedExtents*65536/1024/1024.,
+		[Maximum] =	case Max8kbPages
 						when 0 then TotalExtents*65536/1024/1024.
 						when -1 then Max8kbPages
 						else Max8kbPages * 8 / 1024.
 					end
 	FROM	#showfilestats fs
 		join [?].dbo.sysfilegroups fg on fs.FileGroup = fg.groupid
-	DROP TABLE #showfilestats'
+	DROP TABLE #showfilestats';
 
 	INSERT INTO #showlogstats
-	EXEC ('DBCC SQLPERF(LOGSPACE)')
+	EXEC ('DBCC SQLPERF(LOGSPACE)');
 
-	select @lensrv = LEN(@@SERVERNAME) + 2;
-	select @lendb = MAX(LEN(name)) + 2 from master.sys.databases;
+	SELECT @lensrv = LEN(@@SERVERNAME) + 2;
+	SELECT @lendb = MAX(LEN([name])) + 2 FROM [master].sys.databases;
 
-	if @showfileinfo = 1
+	IF @showfileinfo = 1
 		SELECT @stmt = 'SELECT	
-				BANCO = CONVERT(VARCHAR(' + convert(varchar, @lendb) + '),A.Banco),
+				DBname = CONVERT(VARCHAR(' + CONVERT(VARCHAR, @lendb) + '), A.DBname),
 				FILEGROUP = FileGroupName,
-				ID_ARQUIVO = IdArquivo,
-				NOME_ARQUIVO = Arquivo,
-				TAMANHO_ARQUIVO_MB = A.Total,
-				LIVRE_ARQUIVO_MB = A.Livre,
-				PERC_OCUP = 100 - CONVERT(DECIMAL(5,2),A.Livre * 100.0 / Total),
-				TAMANHO_MAXIMO_MB = Maximo,
-				CAMINHO_ARQUIVO = CaminhoArquivo,
-				TAMANHO_LOG_MB = B.TotalLog,
-				LOG_SPACE_USED = B.Utilizado,
-				DATA = GETDATE()
+				FileId,
+				[FileName],
+				A.Total,
+				A.[Free],
+				PERC_OCUP = 100 - CONVERT(DECIMAL(5,2),A.[Free] * 100.0 / Total),
+				[Maximum],
+				[PhysicalName],
+				B.TotalLog,
+				B.[Used],
+				[VERIFYDATE] = GETDATE()
 			FROM	#showfilestats_final A
-				inner join #showlogstats B on A.Banco = B.Banco
-			WHERE	A.Banco != ''model'' '
-	else
+				inner join #showlogstats B on A.DBname = B.DBname
+			WHERE	A.DBname != ''model'' ';
+	ELSE
 		SELECT @stmt = 'SELECT DISTINCT
-				BANCO = CONVERT(VARCHAR(' + convert(varchar, @lendb) + '),A.Banco),
-				TAMANHO_MB = (SELECT SUM(Total) from #showfilestats_final where Banco = A.Banco),
-				LIVRE_MB = (SELECT SUM(Livre) from #showfilestats_final where Banco = A.Banco),
-				PERC_OCUP = 100 - CONVERT(DECIMAL(5,2),(SELECT SUM(Livre) from #showfilestats_final where Banco = A.Banco) * 100. / (SELECT SUM(Total) from #showfilestats_final where Banco = A.Banco)),
-				TAMANHO_LOG_MB = B.TotalLog,
-				LOG_SPACE_USED = B.Utilizado,
-				DATA = GETDATE()
+				DBname = CONVERT(VARCHAR(' + CONVERT(VARCHAR, @lendb) + '), A.DBname),
+				(SELECT SUM(Total) from #showfilestats_final where DBname = A.DBname),
+				(SELECT SUM([Free]) from #showfilestats_final where DBname = A.DBname),
+				100 - CONVERT(DECIMAL(5,2),(SELECT SUM([Free]) from #showfilestats_final where DBname = A.DBname) * 100. / (SELECT SUM(Total) from #showfilestats_final where DBname = A.DBname)),
+				B.TotalLog,
+				B.[Used],
+				[VERIFYDATE] = GETDATE()
 			FROM	#showfilestats_final A
-				inner join #showlogstats B on A.Banco = B.Banco
-			WHERE	A.Banco != ''model'' '
+				inner join #showlogstats B on A.DBname = B.DBname
+			WHERE	A.DBname != ''model'' ';
 		
-	IF @dbname IS NOT NULL
+	IF @DBname IS NOT NULL
 	BEGIN
 		SELECT @stmt = @stmt + '
-		AND A.Banco like ''' + @dbname + ''' '
+		AND A.DBname like ''' + @DBname + ''' ';
 	END
 
-	IF NOT @threshold IS NULL
+	IF @threshold IS NOT NULL
 	BEGIN
 		if @showfileinfo = 1
 			SELECT @stmt = @stmt + '
-				AND 100 - CONVERT(DECIMAL(5,2),A.Livre * 100.0 / Total) >= ' + CONVERT(VARCHAR, @threshold)
-		else
+				AND 100 - CONVERT(DECIMAL(5,2),A.[Free] * 100.0 / Total) >= ' + CONVERT(VARCHAR, @threshold);
+		ELSE
 			SELECT @stmt = @stmt + '
-				AND 100 - CONVERT(DECIMAL(5,2),(SELECT SUM(Livre) from #showfilestats_final where Banco = A.Banco) * 100.0 / (SELECT SUM(Total) from #showfilestats_final where Banco = A.Banco)) >= ' + CONVERT(VARCHAR, @threshold)
+				AND 100 - CONVERT(DECIMAL(5,2),(SELECT SUM([Free]) from #showfilestats_final where DBname = A.DBname) * 100.0 / (SELECT SUM(Total) from #showfilestats_final where DBname = A.DBname)) >= ' + CONVERT(VARCHAR, @threshold);
 	END
 	
 	SELECT @stmt = @stmt + '
-			ORDER BY 1,2,3'
+			ORDER BY 1,2,3';
 			
-	set nocount off
+	SET NOCOUNT OFF
 
 	if @tmpTabName is not null
-		select @stmt = 'INSERT INTO ' + @tmpTabName + ' ' + @stmt
+		select @stmt = 'INSERT INTO ' + @tmpTabName + ' ' + @stmt;
 
-	if @testonly = 1
-	begin
+	IF @debug = 1
+	BEGIN
 		SELECT @stmt = '
 	**** Procedure: sp_dba_getspace *************************************************************
 		
-	**** Parametros, tipos e valores passados: ****************************************************
-			@dbname nvarchar(128) = ' + ISNULL(@dbname, 'NULL') + '
+	**** Parameters, types and values: ************************************************************
+			@DBname nvarchar(128) = ' + ISNULL(@DBname, 'NULL') + '
 			@threshold decimal(5,2) = ' + ISNULL(convert(varchar(9), @threshold), 'NULL') + '
 			@showfileinfo bit = ' + ISNULL(convert(char(1), @showfileinfo), 'NULL') + '
-			@testonly bit = ' + ISNULL(convert(char(1), @showfileinfo), 'NULL') + '
+			@debug bit = ' + ISNULL(convert(char(1), @showfileinfo), 'NULL') + '
 			@tmpTabName varchar(128) = ' + ISNULL(@tmpTabName, 'NULL') + '
 			
-	**** Query realizada: *************************************************************************
-		' + @stmt
-		print @stmt
-	end
-		else EXEC(@stmt)
+	**** Query: ***********************************************************************************
+		' + @stmt;
+		PRINT @stmt;
+	END
+		ELSE EXEC(@stmt);
 		
-	DROP TABLE #showfilestats_final
-	DROP TABLE #showlogstats
+	DROP TABLE #showfilestats_final;
+	DROP TABLE #showlogstats;
 END
 GO
 
