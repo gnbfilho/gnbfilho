@@ -2,11 +2,11 @@ USE [master]
 GO
 
 CREATE PROCEDURE sp_dba_getspace (
-	@DBname nvarchar(128) = NULL,
-	@threshold decimal(5,2) = NULL,
-	@showfileinfo bit = 0,
-	@debug bit = 0,
-	@tmpTabName varchar(128) = NULL
+	@DBname NVARCHAR(128) = NULL,
+	@threshold DECIMAL(5,2) = NULL,
+	@showfileinfo BIT = 0,
+	@debug BIT = 0,
+	@tmpTabName VARCHAR(128) = NULL
 ) AS
 BEGIN
 	SET NOCOUNT ON
@@ -84,29 +84,29 @@ BEGIN
 	IF @showfileinfo = 1
 		SELECT @stmt = 'SELECT	
 				DBname = CONVERT(VARCHAR(' + CONVERT(VARCHAR, @lendb) + '), A.DBname),
-				FILEGROUP = FileGroupName,
+				FileGroup = FileGroupName,
 				FileId,
 				[FileName],
 				A.Total,
 				A.[Free],
-				PERC_OCUP = 100 - CONVERT(DECIMAL(5,2),A.[Free] * 100.0 / Total),
+				[UsedPct] = 100 - CONVERT(DECIMAL(5,2),A.[Free] * 100.0 / Total),
 				[Maximum],
 				[PhysicalName],
 				B.TotalLog,
 				B.[Used],
-				[VERIFYDATE] = GETDATE()
+				[VerifiedDate] = GETDATE()
 			FROM	#showfilestats_final A
 				inner join #showlogstats B on A.DBname = B.DBname
 			WHERE	A.DBname != ''model'' ';
 	ELSE
 		SELECT @stmt = 'SELECT DISTINCT
 				DBname = CONVERT(VARCHAR(' + CONVERT(VARCHAR, @lendb) + '), A.DBname),
-				(SELECT SUM(Total) from #showfilestats_final where DBname = A.DBname),
-				(SELECT SUM([Free]) from #showfilestats_final where DBname = A.DBname),
-				100 - CONVERT(DECIMAL(5,2),(SELECT SUM([Free]) from #showfilestats_final where DBname = A.DBname) * 100. / (SELECT SUM(Total) from #showfilestats_final where DBname = A.DBname)),
+				[Total] = (SELECT SUM(Total) from #showfilestats_final where DBname = A.DBname),
+				[Free] = (SELECT SUM([Free]) from #showfilestats_final where DBname = A.DBname),
+				[UsedPct] = 100 - CONVERT(DECIMAL(5,2),(SELECT SUM([Free]) from #showfilestats_final where DBname = A.DBname) * 100. / (SELECT SUM(Total) from #showfilestats_final where DBname = A.DBname)),
 				B.TotalLog,
 				B.[Used],
-				[VERIFYDATE] = GETDATE()
+				[VerifiedDate] = GETDATE()
 			FROM	#showfilestats_final A
 				inner join #showlogstats B on A.DBname = B.DBname
 			WHERE	A.DBname != ''model'' ';
